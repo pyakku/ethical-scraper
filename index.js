@@ -1,6 +1,6 @@
 import express from 'express';
 import axios from 'axios';
-import cheerio from 'cheerio';
+import { load } from 'cheerio';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -13,7 +13,7 @@ app.post('/scrape', async (req, res) => {
 
   try {
     const response = await axios.get(url);
-    const $ = cheerio.load(response.data);
+    const $ = load(response.data);
     const title = $('title').text();
 
     res.json({ title });
