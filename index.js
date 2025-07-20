@@ -32,13 +32,38 @@ async function scrapePage(url, baseDomain) {
   try {
     const res = await axios.get(url);
     const $ = load(res.data);
-    const title = $('title').text();
-    scrapedData[url] = { title };
 
+    // Remove non-content tags
+    $('script, style, noscript, img').remove();
+
+    // Get all visible text
+    const text = $('body')
+      .find('*')
+      .contents()
+      .filter(function () {
+        return this.type === 'text' && $(this).text().trim().length > 0;
+      })
+      .map(function () {
+        return $(this).text().trim();
+      })
+      .get()
+      .join('\n');
+
+    scrapedData[url] = {
+      title: $('title').text(),
+      text
+    };
+
+    // Get same-domain links (excluding hash anchors)
     const links = $("a[href]")
       .map((_, a) => new URL($(a).attr("href"), url).href)
       .get()
-      .filter((link) => link.startsWith(baseDomain));
+      .filter(
+        (link) =>
+          link.startsWith(baseDomain) &&
+          !visited.has(link) &&
+          !link.includes('#')
+      );
 
     for (const link of links) {
       await scrapePage(link, baseDomain);
@@ -47,6 +72,7 @@ async function scrapePage(url, baseDomain) {
     scrapedData[url] = { error: err.message };
   }
 }
+
 
 app.post('/scrape', async (req, res) => {
   const { url } = req.body;
