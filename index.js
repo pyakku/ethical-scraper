@@ -19,8 +19,12 @@ async function isAllowed(url) {
     const robots = robotsParser(robotsUrl, res.data);
     return robots.isAllowed(url, 'ethical-scraper');
   } catch {
-    return true; // If robots.txt can't be loaded, proceed by default
+    return true;
   }
+}
+
+async function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function scrapePage(url, baseDomain) {
@@ -30,13 +34,11 @@ async function scrapePage(url, baseDomain) {
   if (!(await isAllowed(url))) return;
 
   try {
-    const res = await axios.get(url);
+    const res = await axios.get(url, { maxRedirects: 5 });
     const $ = load(res.data);
 
-    // Remove non-content tags
     $('script, style, noscript, img').remove();
 
-    // Get all visible text
     const text = $('body')
       .find('*')
       .contents()
@@ -54,18 +56,22 @@ async function scrapePage(url, baseDomain) {
       text
     };
 
-    // Get same-domain links (excluding hash anchors)
+    // Collect internal links
     const links = $("a[href]")
       .map((_, a) => new URL($(a).attr("href"), url).href)
       .get()
-      .filter(
-        (link) =>
-          link.startsWith(baseDomain) &&
-          !visited.has(link) &&
-          !link.includes('#')
-      );
+      .filter((link) => {
+        const parsed = new URL(link);
+        return (
+          parsed.origin === baseDomain &&
+          !visited.has(parsed.href) &&
+          !parsed.hash && // Skip anchor links
+          !parsed.pathname.endsWith('.pdf') // Skip non-HTML docs
+        );
+      });
 
     for (const link of links) {
+      await delay(500); // Wait 0.5s between requests
       await scrapePage(link, baseDomain);
     }
   } catch (err) {
@@ -73,13 +79,12 @@ async function scrapePage(url, baseDomain) {
   }
 }
 
-
 app.post('/scrape', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'URL is required' });
 
   visited.clear();
-  scrapedData[url] = {};
+  Object.keys(scrapedData).forEach(k => delete scrapedData[k]);
 
   try {
     const baseDomain = new URL(url).origin;
